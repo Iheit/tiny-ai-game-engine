@@ -1,96 +1,505 @@
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#ifdef CreateWindowA
-#undef CreateWindowA
-#endif
-#define CreateWindowA(...) CreateWindowExA(0, __VA_ARGS__)
+#include <windowsx.h>
 #include <commdlg.h>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
-#include <fstream>
+#include <array>
+#include <chrono>
 #include <algorithm>
-#include <cstdio>
-"engine.hpp"
-#include "script.hpp"
+#include <cstdlib>
+#include "engine.hpp"
+
+namespace fs = std::filesystem;
 using namespace tiny;
-namespace fs=std::filesystem;
 
-static HWND gWnd,gView,gTree,gName,gX,gY,gZ,gRX,gRY,gRZ,gSX,gSY,gSZ,gOut;
-static Engine g;
-static int sel=-1;
-static std::wstring project;
+namespace {
+constexpr int ID_NEW = 1001;
+constexpr int ID_OPEN = 1002;
+constexpr int ID_SAVE = 1003;
+constexpr int ID_BUILD = 1004;
+constexpr int ID_PLAY = 1005;
+constexpr int ID_STOP = 1006;
+constexpr int ID_ADD_CUBE = 1101;
+constexpr int ID_ADD_SPHERE = 1102;
+constexpr int ID_ADD_PLANE = 1103;
+constexpr int ID_ADD_CAMERA = 1104;
+constexpr int ID_ADD_DIRECTIONAL = 1105;
+constexpr int ID_ADD_POINT = 1106;
+constexpr int ID_ADD_SPOT = 1107;
+constexpr int ID_DELETE = 1108;
+constexpr int ID_DUPLICATE = 1109;
+constexpr int ID_FOCUS = 1110;
+constexpr int ID_APPLY = 1201;
+constexpr int ID_SCENE = 1301;
+constexpr int ID_RECENT = 1401;
+constexpr int ID_HUB_OPEN_SELECTED = 1402;
 
-enum{NEWP=1,OPENP,SAVE,BUILD,PLAY,STOP,ADD_CUBE,ADD_SPHERE,ADD_PLANE,ADD_CAM,ADD_DIR,ADD_POINT,ADD_SPOT,DEL,DUP,APPLY,FOCUS};
+HINSTANCE gInstance{};
+HWND gMain{}, gHub{}, gViewport{}, gScene{}, gOut{}, gInspectorName{};
+std::array<HWND, 9> gTransform{};
+Engine gEngine;
+std::wstring gProject;
+int gSelected = -1;
+bool gInEditor = false;
 
-static HWND edit(HWND p,const char*t,int x,int y,int w,int h){return CreateWindowA("EDIT",t,WS_CHILD|WS_VISIBLE|WS_BORDER|ES_AUTOHSCROLL,x,y,w,h,p,nullptr,nullptr,nullptr);}
-static HWND button(HWND p,const char*t,int id,int x,int y,int w,int h=28){return CreateWindowA("BUTTON",t,WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,x,y,w,h,p,(HMENU)(INT_PTR)id,nullptr,nullptr);}
-static HWND label(HWND p,const char*t,int x,int y,int w=80,int h=20){return CreateWindowA("STATIC",t,WS_CHILD|WS_VISIBLE,x,y,w,h,p,nullptr,nullptr,nullptr);}
-static HWND group(HWND p,const char*t,int x,int y,int w,int h){return CreateWindowA("BUTTON",t,WS_CHILD|WS_VISIBLE|BS_GROUPBOX,x,y,w,h,p,nullptr,nullptr,nullptr);}
-static void out(const std::string&s){if(gOut)SetWindowTextA(gOut,s.c_str());}
-
-static void refresh(){
-    SendMessageA(gTree,LB_RESETCONTENT,0,0);
-    for(auto&e:g.scene().entities){std::string s=e.name+"  ["+kindName(e.kind)+"]";SendMessageA(gTree,LB_ADDSTRING,0,(LPARAM)s.c_str());}
-    if(sel>=0&&sel<(int)g.scene().entities.size()){
-        auto&e=g.scene().entities[sel]; SetWindowTextA(gName,e.name.c_str()); char b[64];
-        auto set=[&](HWND h,float v){sprintf_s(b,"%.3f",v);SetWindowTextA(h,b);};
-        set(gX,e.transform.position.x);set(gY,e.transform.position.y);set(gZ,e.transform.position.z);
-        set(gRX,e.transform.rotation.x);set(gRY,e.transform.rotation.y);set(gRZ,e.transform.rotation.z);
-        set(gSX,e.transform.scale.x);set(gSY,e.transform.scale.y);set(gSZ,e.transform.scale.z);
-        SendMessageA(gTree,LB_SETCURSEL,sel,0);
-    }
-    InvalidateRect(gView,nullptr,FALSE);
-}
-static void save(){if(project.empty()){out("No project open.");return;}if(!writeUtf8File(project,serialize(g.scene())))out("Save failed.");else out("Saved "+narrow(project));}
-static bool load(){std::string s,e;if(!readUtf8File(project,s)){out("Could not read project.");return false;}if(!deserialize(s,g.scene(),e)){out("Load error: "+e);return false;}sel=g.scene().entities.empty()?-1:0;refresh();out("Loaded "+narrow(project));return true;}
-static void newProject(){char f[MAX_PATH]="MyGame.tinyproj";OPENFILENAMEA o{};o.lStructSize=sizeof(o);o.hwndOwner=gWnd;o.lpstrFile=f;o.nMaxFile=MAX_PATH;o.lpstrFilter="Tiny project\0*.tinyproj\0\0";o.Flags=OFN_OVERWRITEPROMPT;if(!GetSaveFileNameA(&o))return;project=widen(f);g=Engine{};g.initialize(gView,800,560);g.setInput(gWnd);save();refresh();}
-static void openProject(){char f[MAX_PATH]{};OPENFILENAMEA o{};o.lStructSize=sizeof(o);o.hwndOwner=gWnd;o.lpstrFile=f;o.nMaxFile=MAX_PATH;o.lpstrFilter="Tiny project\0*.tinyproj\0All files\0*.*\0\0";o.Flags=OFN_FILEMUSTEXIST;if(!GetOpenFileNameA(&o))return;project=widen(f);load();}
-static void add(EntityKind k){Entity e;e.id=g.scene().nextId++;e.kind=k;e.name=kindName(k);int n=1;for(auto&q:g.scene().entities)if(q.kind==k)++n;e.name+=std::to_string(n);if(k==EntityKind::Plane)e.transform.scale={5,.1f,5};if(k==EntityKind::Cube){e.transform.position={0,1,0};e.dynamic=true;}if(k==EntityKind::Sphere)e.transform.position={2,1,0};if(k==EntityKind::PointLight)e.transform.position={2,3,-2};if(k==EntityKind::SpotLight)e.transform.position={-2,3,-2};g.scene().entities.push_back(e);sel=(int)g.scene().entities.size()-1;refresh();out(e.name+" added.");}
-static float gf(HWND h,float old){char b[64];GetWindowTextA(h,b,64);char*e;float v=strtof(b,&e);return e==b?old:v;}
-static void apply(){if(sel<0)return;auto&e=g.scene().entities[sel];char n[128];GetWindowTextA(gName,n,128);if(n[0])e.name=n;e.transform.position={gf(gX,e.transform.position.x),gf(gY,e.transform.position.y),gf(gZ,e.transform.position.z)};e.transform.rotation={gf(gRX,e.transform.rotation.x),gf(gRY,e.transform.rotation.y),gf(gRZ,e.transform.rotation.z)};e.transform.scale={std::max(.01f,gf(gSX,e.transform.scale.x)),std::max(.01f,gf(gSY,e.transform.scale.y)),std::max(.01f,gf(gSZ,e.transform.scale.z))};refresh();out("Inspector applied.");}
-static void build(){if(project.empty()){out("Open or create a project first.");return;}save();fs::path dir=fs::path(project).parent_path()/"build";fs::create_directories(dir);wchar_t exe[MAX_PATH];GetModuleFileNameW(nullptr,exe,MAX_PATH);fs::path runtime=fs::path(exe).parent_path()/L"TinyAIRuntime.exe";if(!fs::exists(runtime)){out("Runtime executable is missing. Build the engine first.");return;}fs::copy_file(runtime,dir/"Game.exe",fs::copy_options::overwrite_existing);fs::copy_file(project,dir/"game.tinyproj",fs::copy_options::overwrite_existing);out("Built standalone game in "+narrow(dir.wstring()));}
-
-static void layout(HWND h){RECT r{};GetClientRect(h,&r);int W=r.right,H=r.bottom;int left=210,right=300,top=76,bottom=96;int vw=(std::max)(200,W-left-right),vh=(std::max)(160,H-top-bottom);MoveWindow(gView,left,top,vw,vh,TRUE);MoveWindow(gOut,left,H-78,W-left-8,66,TRUE);}
-
-static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){
-    if(h==gView){
-        if(m==WM_SIZE){g.resize(LOWORD(l),HIWORD(l));return 0;}
-        if(m==WM_LBUTTONDOWN){POINT p{LOWORD(l),HIWORD(l)};for(int i=0;i<(int)g.scene().entities.size();++i){auto&e=g.scene().entities[i];if(e.kind==EntityKind::Camera)continue;RECT rr{};GetClientRect(gView,&rr);float sx=rr.right/2.0f+e.transform.position.x*35;float sy=rr.bottom/2.0f-e.transform.position.y*35;if((p.x-sx)*(p.x-sx)+(p.y-sy)*(p.y-sy)<900){sel=i;refresh();break;}}return 0;}
-        return DefWindowProcA(h,m,w,l);
-    }
-    if(m==WM_SIZE){layout(h);return 0;}
-    if(m==WM_COMMAND){
-        int id=LOWORD(w),code=HIWORD(w);
-        if(id==200&&code==LBN_SELCHANGE){sel=(int)SendMessageA(gTree,LB_GETCURSEL,0,0);refresh();return 0;}
-        if(id==NEWP)newProject();else if(id==OPENP)openProject();else if(id==SAVE)save();else if(id==BUILD)build();
-        else if(id==PLAY){g.play(true);out("Play mode running. WASD moves dynamic objects.");}
-        else if(id==STOP){g.play(false);out("Play mode stopped.");}
-        else if(id==ADD_CUBE)add(EntityKind::Cube);else if(id==ADD_SPHERE)add(EntityKind::Sphere);else if(id==ADD_PLANE)add(EntityKind::Plane);else if(id==ADD_CAM)add(EntityKind::Camera);else if(id==ADD_DIR)add(EntityKind::DirectionalLight);else if(id==ADD_POINT)add(EntityKind::PointLight);else if(id==ADD_SPOT)add(EntityKind::SpotLight);
-        else if(id==DEL&&sel>=0){if(g.scene().entities[sel].id!=g.scene().cameraId){g.scene().entities.erase(g.scene().entities.begin()+sel);sel=-1;refresh();out("Deleted.");}}
-        else if(id==DUP&&sel>=0){auto e=g.scene().entities[sel];e.id=g.scene().nextId++;e.name+=" Copy";e.transform.position.x+=1;g.scene().entities.push_back(e);sel=(int)g.scene().entities.size()-1;refresh();}
-        else if(id==APPLY)apply();
-        else if(id==FOCUS&&sel>=0){auto&e=g.scene().entities[sel];if(e.kind!=EntityKind::Camera){auto c=std::find_if(g.scene().entities.begin(),g.scene().entities.end(),[](auto&q){return q.kind==EntityKind::Camera;});if(c!=g.scene().entities.end()){c->transform.position={e.transform.position.x,e.transform.position.y+2,e.transform.position.z-6};out("Focused selection.");}}}
-        return 0;
-    }
-    if(m==WM_DESTROY){PostQuitMessage(0);return 0;}
-    return DefWindowProcA(h,m,w,l);
+HWND child(const char* cls, const char* text, DWORD style, int x, int y, int w, int h,
+           HWND parent, int id = 0) {
+    return CreateWindowExA(0, cls, text, style, x, y, w, h, parent,
+        id ? reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)) : nullptr,
+        gInstance, nullptr);
 }
 
-int WINAPI WinMain(HINSTANCE hi,HINSTANCE,LPSTR,int){
-    WNDCLASSA wc{};wc.lpfnWndProc=proc;wc.hInstance=hi;wc.lpszClassName="TinyEditor";wc.hCursor=LoadCursor(nullptr,IDC_ARROW);RegisterClassA(&wc);
-    gWnd=CreateWindowA("TinyEditor","Tiny AI Game Engine | Editor",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN|WS_VISIBLE,80,50,1280,820,nullptr,nullptr,hi,nullptr);
-    group(gWnd,"Project",8,38,190,40);button(gWnd,"New",NEWP,16,49,52);button(gWnd,"Open",OPENP,72,49,52);button(gWnd,"Save",SAVE,128,49,52);
-    group(gWnd,"Build / Run",202,38,250,40);button(gWnd,"Build",BUILD,210,49,55);button(gWnd,"Play",PLAY,269,49,55);button(gWnd,"Stop",STOP,328,49,55);button(gWnd,"Focus",FOCUS,387,49,58);
-    group(gWnd,"Hierarchy",8,82,194,500);gTree=CreateWindowA("LISTBOX","",WS_CHILD|WS_VISIBLE|WS_BORDER|LBS_NOTIFY|WS_VSCROLL,16,110,178,390,gWnd,(HMENU)200,hi,nullptr);
-    group(gWnd,"Create",8,505,194,150);button(gWnd,"Cube",ADD_CUBE,16,528,52);button(gWnd,"Sphere",ADD_SPHERE,72,528,56);button(gWnd,"Plane",ADD_PLANE,132,528,56);button(gWnd,"Camera",ADD_CAM,16,562,58);button(gWnd,"Dir Light",ADD_DIR,78,562,72);button(gWnd,"Point",ADD_POINT,154,562,42);button(gWnd,"Spot",ADD_SPOT,16,596,52);button(gWnd,"Duplicate",DUP,74,596,72);button(gWnd,"Delete",DEL,150,596,44);
-    gView=CreateWindowA("TinyEditor","",WS_CHILD|WS_VISIBLE|WS_BORDER,210,82,700,520,gWnd,nullptr,hi,nullptr);
-    group(gWnd,"Inspector",918,82,334,500);label(gWnd,"Name",930,110,48);gName=edit(gWnd,"",978,108,250,24);
-    const char*names[]={"X","Y","Z","RX","RY","RZ","SX","SY","SZ"};HWND*es[]={&gX,&gY,&gZ,&gRX,&gRY,&gRZ,&gSX,&gSY,&gSZ};
-    for(int i=0;i<9;++i){int row=i/3,col=i%3;int x=932+col*102,y=150+row*58;label(gWnd,names[i],x,y,24);*es[i]=edit(gWnd,"0",x+24,y-2,68,24);}
-    button(gWnd,"Apply Changes",APPLY,930,330,120,30);label(gWnd,"Tip: select an entity in Hierarchy or the viewport.",930,375,290,36);
-    label(gWnd,"Viewport",220,60,120,20);label(gWnd,"Output",220,0,120,20);
-    gOut=CreateWindowA("EDIT","Ready.  New/Open creates a scene you can build.",WS_CHILD|WS_VISIBLE|WS_BORDER|ES_MULTILINE|ES_READONLY,210,700,1040,66,gWnd,nullptr,hi,nullptr);
-    g.initialize(gView,700,520);g.setInput(gWnd);refresh();layout(gWnd);
-    MSG msg;while(GetMessageA(&msg,nullptr,0,0)){TranslateMessage(&msg);DispatchMessageA(&msg);if(g.playing())g.tick(.016f);g.render();}
+void show(HWND h, bool visible) {
+    if (h) ShowWindow(h, visible ? SW_SHOW : SW_HIDE);
+}
+
+void setOutput(const std::string& text) {
+    if (gOut) SetWindowTextA(gOut, text.c_str());
+}
+
+fs::path recentFile() {
+    wchar_t appData[32768]{};
+    DWORD n = GetEnvironmentVariableW(L"APPDATA", appData, static_cast<DWORD>(std::size(appData)));
+    fs::path base = n ? fs::path(appData) : fs::current_path();
+    base /= L"TinyAI";
+    std::error_code ec;
+    fs::create_directories(base, ec);
+    return base / L"recent.txt";
+}
+
+std::vector<std::wstring> readRecent() {
+    std::vector<std::wstring> result;
+    std::ifstream in(recentFile(), std::ios::binary);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty()) continue;
+        fs::path p = fs::path(widen(line));
+        if (fs::exists(p)) result.push_back(p.wstring());
+    }
+    return result;
+}
+
+void rememberRecent(const std::wstring& project) {
+    auto items = readRecent();
+    items.erase(std::remove(items.begin(), items.end(), project), items.end());
+    items.insert(items.begin(), project);
+    if (items.size() > 8) items.resize(8);
+    std::ofstream out(recentFile(), std::ios::binary | std::ios::trunc);
+    for (const auto& p : items) out << narrow(p) << '\n';
+}
+
+void refreshRecent() {
+    HWND list = GetDlgItem(gHub, ID_RECENT);
+    if (!list) return;
+    SendMessageA(list, LB_RESETCONTENT, 0, 0);
+    for (const auto& p : readRecent())
+        SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(p.c_str()));
+}
+
+void refreshScene() {
+    if (!gScene) return;
+    SendMessageA(gScene, LB_RESETCONTENT, 0, 0);
+    for (const auto& e : gEngine.scene().entities) {
+        std::string text = e.name + "   [" + kindName(e.kind) + "]";
+        SendMessageA(gScene, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
+    }
+    if (gSelected >= 0 && gSelected < static_cast<int>(gEngine.scene().entities.size())) {
+        SendMessageA(gScene, LB_SETCURSEL, gSelected, 0);
+        const Entity& e = gEngine.scene().entities[gSelected];
+        SetWindowTextA(gInspectorName, e.name.c_str());
+        const float values[] = {
+            e.transform.position.x, e.transform.position.y, e.transform.position.z,
+            e.transform.rotation.x, e.transform.rotation.y, e.transform.rotation.z,
+            e.transform.scale.x, e.transform.scale.y, e.transform.scale.z
+        };
+        char buf[64];
+        for (size_t i = 0; i < gTransform.size(); ++i) {
+            sprintf_s(buf, "%.3f", values[i]);
+            SetWindowTextA(gTransform[i], buf);
+        }
+    }
+}
+
+bool initializeEngine() {
+    if (gEngine.graphics().ready()) return true;
+    RECT r{};
+    GetClientRect(gViewport, &r);
+    int w = std::max(1, r.right - r.left);
+    int h = std::max(1, r.bottom - r.top);
+    if (!gEngine.initialize(gViewport, w, h)) {
+        MessageBoxA(gMain, "Direct3D 11 could not initialize the editor viewport.", "Tiny AI Game Engine", MB_OK | MB_ICONERROR);
+        return false;
+    }
+    gEngine.setInput(gViewport);
+    return true;
+}
+
+bool loadProject() {
+    std::string data, error;
+    if (!readUtf8File(gProject, data)) {
+        setOutput("Could not read the project file.");
+        return false;
+    }
+    if (!deserialize(data, gEngine.scene(), error)) {
+        setOutput("Project load failed: " + error);
+        return false;
+    }
+    gSelected = gEngine.scene().entities.empty() ? -1 : 0;
+    rememberRecent(gProject);
+    refreshScene();
+    setOutput("Opened " + narrow(gProject));
+    return true;
+}
+
+bool saveProject() {
+    if (gProject.empty()) {
+        setOutput("No project is open.");
+        return false;
+    }
+    if (!writeUtf8File(gProject, serialize(gEngine.scene()))) {
+        setOutput("Could not save the project.");
+        return false;
+    }
+    rememberRecent(gProject);
+    setOutput("Saved " + narrow(gProject));
+    return true;
+}
+
+void showEditor() {
+    gInEditor = true;
+    show(gHub, false);
+    show(gScene, true);
+    show(gViewport, true);
+    show(gOut, true);
+    show(gInspectorName, true);
+    for (HWND h : gTransform) show(h, true);
+    RECT r{};
+    GetClientRect(gMain, &r);
+    int W = r.right, H = r.bottom;
+    const int left = 238, right = 302, top = 72, bottom = 122;
+    int vw = std::max(220, W - left - right);
+    int vh = std::max(180, H - top - bottom);
+    MoveWindow(gViewport, left, top, vw, vh, TRUE);
+    MoveWindow(gScene, 10, 90, left - 20, 330, TRUE);
+    MoveWindow(gOut, left, H - bottom + 28, vw, bottom - 36, TRUE);
+    MoveWindow(gInspectorName, W - right + 70, 95, right - 92, 24, TRUE);
+    for (int i = 0; i < 9; ++i) {
+        int col = i % 3, row = i / 3;
+        MoveWindow(gTransform[i], W - right + 35 + col * 82, 140 + row * 50, 70, 24, TRUE);
+    }
+    if (gEngine.graphics().ready()) gEngine.resize(vw, vh);
+}
+
+void showHub() {
+    gInEditor = false;
+    show(gHub, true);
+    show(gScene, false);
+    show(gViewport, false);
+    show(gOut, false);
+    show(gInspectorName, false);
+    for (HWND h : gTransform) show(h, false);
+    RECT r{};
+    GetClientRect(gMain, &r);
+    int W = r.right, H = r.bottom;
+    int panelW = std::min(760, std::max(520, W - 80));
+    int panelH = std::min(540, std::max(440, H - 100));
+    MoveWindow(gHub, (W - panelW) / 2, 48, panelW, panelH, TRUE);
+    refreshRecent();
+}
+
+void createProject() {
+    char file[MAX_PATH] = "MyGame.tinyproj";
+    OPENFILENAMEA dlg{};
+    dlg.lStructSize = sizeof(dlg);
+    dlg.hwndOwner = gMain;
+    dlg.lpstrFile = file;
+    dlg.nMaxFile = MAX_PATH;
+    dlg.lpstrFilter = "Tiny Project\0*.tinyproj\0\0";
+    dlg.Flags = OFN_OVERWRITEPROMPT;
+    if (!GetSaveFileNameA(&dlg)) return;
+    gProject = widen(file);
+    if (!initializeEngine()) return;
+    showEditor();
+    saveProject();
+    refreshScene();
+    SetWindowTextA(gMain, ("Tiny AI Game Engine - " + narrow(gProject)).c_str());
+}
+
+void openProjectPath(const std::wstring& path) {
+    gProject = path;
+    if (!initializeEngine()) return;
+    if (!loadProject()) return;
+    showEditor();
+    SetWindowTextA(gMain, ("Tiny AI Game Engine - " + narrow(gProject)).c_str());
+}
+
+void openProjectDialog() {
+    char file[MAX_PATH]{};
+    OPENFILENAMEA dlg{};
+    dlg.lStructSize = sizeof(dlg);
+    dlg.hwndOwner = gMain;
+    dlg.lpstrFile = file;
+    dlg.nMaxFile = MAX_PATH;
+    dlg.lpstrFilter = "Tiny Project\0*.tinyproj\0All Files\0*.*\0\0";
+    dlg.Flags = OFN_FILEMUSTEXIST;
+    if (GetOpenFileNameA(&dlg)) openProjectPath(widen(file));
+}
+
+void buildGame() {
+    if (!saveProject()) return;
+    fs::path output = fs::path(gProject).parent_path() / "build";
+    std::error_code ec;
+    fs::create_directories(output, ec);
+    wchar_t module[MAX_PATH]{};
+    GetModuleFileNameW(nullptr, module, MAX_PATH);
+    fs::path runtime = fs::path(module).parent_path() / L"TinyAIRuntime.exe";
+    if (!fs::exists(runtime)) {
+        setOutput("Runtime executable not found beside the editor.");
+        return;
+    }
+    fs::copy_file(runtime, output / L"Game.exe", fs::copy_options::overwrite_existing, ec);
+    if (ec) { setOutput("Failed to copy Game.exe."); return; }
+    fs::copy_file(gProject, output / L"game.tinyproj", fs::copy_options::overwrite_existing, ec);
+    if (ec) { setOutput("Failed to copy game.tinyproj."); return; }
+    setOutput("Standalone game built in " + narrow(output.wstring()));
+}
+
+void addEntity(EntityKind kind) {
+    Entity e;
+    e.id = gEngine.scene().nextId++;
+    e.kind = kind;
+    int count = 1;
+    for (const auto& q : gEngine.scene().entities) if (q.kind == kind) ++count;
+    e.name = kindName(kind) + " " + std::to_string(count);
+    if (kind == EntityKind::Plane) e.transform.scale = {5.0f, 0.1f, 5.0f};
+    if (kind == EntityKind::Cube) { e.transform.position = {0, 1, 0}; e.dynamic = true; }
+    if (kind == EntityKind::Sphere) e.transform.position = {2, 1, 0};
+    if (kind == EntityKind::PointLight) e.transform.position = {2, 3, -2};
+    if (kind == EntityKind::SpotLight) e.transform.position = {-2, 3, -2};
+    gEngine.scene().entities.push_back(e);
+    gSelected = static_cast<int>(gEngine.scene().entities.size()) - 1;
+    refreshScene();
+    setOutput(e.name + " added.");
+}
+
+void applyInspector() {
+    if (gSelected < 0 || gSelected >= static_cast<int>(gEngine.scene().entities.size())) return;
+    Entity& e = gEngine.scene().entities[gSelected];
+    char name[128]{};
+    GetWindowTextA(gInspectorName, name, static_cast<int>(std::size(name)));
+    if (name[0]) e.name = name;
+    auto read = [](HWND h, float fallback) {
+        char text[64]{}; GetWindowTextA(h, text, static_cast<int>(std::size(text)));
+        char* end = nullptr; float v = std::strtof(text, &end); return end == text ? fallback : v;
+    };
+    e.transform.position = {read(gTransform[0], e.transform.position.x), read(gTransform[1], e.transform.position.y), read(gTransform[2], e.transform.position.z)};
+    e.transform.rotation = {read(gTransform[3], e.transform.rotation.x), read(gTransform[4], e.transform.rotation.y), read(gTransform[5], e.transform.rotation.z)};
+    e.transform.scale = {std::max(0.01f, read(gTransform[6], e.transform.scale.x)), std::max(0.01f, read(gTransform[7], e.transform.scale.y)), std::max(0.01f, read(gTransform[8], e.transform.scale.z))};
+    refreshScene();
+    setOutput("Inspector changes applied.");
+}
+
+void selectViewport(int x, int y) {
+    RECT r{}; GetClientRect(gViewport, &r);
+    for (int i = 0; i < static_cast<int>(gEngine.scene().entities.size()); ++i) {
+        const auto& e = gEngine.scene().entities[i];
+        if (e.kind == EntityKind::Camera) continue;
+        float sx = r.right * 0.5f + e.transform.position.x * 35.0f;
+        float sy = r.bottom * 0.5f - e.transform.position.y * 35.0f;
+        float dx = x - sx, dy = y - sy;
+        if (dx * dx + dy * dy < 900.0f) {
+            gSelected = i;
+            refreshScene();
+            setOutput("Selected " + e.name + ".");
+            return;
+        }
+    }
+}
+
+LRESULT CALLBACK viewportProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+        case WM_LBUTTONDOWN:
+            SetFocus(hwnd);
+            selectViewport(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+            return 0;
+        case WM_KEYDOWN:
+            if (wp == VK_DELETE) PostMessageA(gMain, WM_COMMAND, ID_DELETE, 0);
+            if (wp == 'F') PostMessageA(gMain, WM_COMMAND, ID_FOCUS, 0);
+            return 0;
+        case WM_SIZE:
+            if (gEngine.graphics().ready()) gEngine.resize(std::max(1, LOWORD(lp)), std::max(1, HIWORD(lp)));
+            return 0;
+    }
+    return DefWindowProcA(hwnd, msg, wp, lp);
+}
+
+LRESULT CALLBACK mainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+        case WM_SIZE:
+            if (gInEditor) showEditor(); else showHub();
+            return 0;
+        case WM_COMMAND: {
+            int id = LOWORD(wp), code = HIWORD(wp);
+            if (id == ID_SCENE && code == LBN_SELCHANGE) {
+                int index = static_cast<int>(SendMessageA(gScene, LB_GETCURSEL, 0, 0));
+                if (index != LB_ERR) { gSelected = index; refreshScene(); }
+                return 0;
+            }
+            switch (id) {
+                case ID_NEW: createProject(); break;
+                case ID_OPEN: openProjectDialog(); break;
+                case ID_SAVE: saveProject(); break;
+                case ID_BUILD: buildGame(); break;
+                case ID_PLAY: gEngine.play(true); setOutput("Play mode running."); break;
+                case ID_STOP: gEngine.play(false); setOutput("Play mode stopped."); break;
+                case ID_ADD_CUBE: addEntity(EntityKind::Cube); break;
+                case ID_ADD_SPHERE: addEntity(EntityKind::Sphere); break;
+                case ID_ADD_PLANE: addEntity(EntityKind::Plane); break;
+                case ID_ADD_CAMERA: addEntity(EntityKind::Camera); break;
+                case ID_ADD_DIRECTIONAL: addEntity(EntityKind::DirectionalLight); break;
+                case ID_ADD_POINT: addEntity(EntityKind::PointLight); break;
+                case ID_ADD_SPOT: addEntity(EntityKind::SpotLight); break;
+                case ID_DELETE:
+                    if (gSelected >= 0 && gSelected < static_cast<int>(gEngine.scene().entities.size())) {
+                        if (gEngine.scene().entities[gSelected].id != gEngine.scene().cameraId) {
+                            gEngine.scene().entities.erase(gEngine.scene().entities.begin() + gSelected);
+                            gSelected = -1; refreshScene(); setOutput("Entity deleted.");
+                        }
+                    }
+                    break;
+                case ID_DUPLICATE:
+                    if (gSelected >= 0 && gSelected < static_cast<int>(gEngine.scene().entities.size())) {
+                        Entity e = gEngine.scene().entities[gSelected]; e.id = gEngine.scene().nextId++; e.name += " Copy"; e.transform.position.x += 1.0f;
+                        gEngine.scene().entities.push_back(e); gSelected = static_cast<int>(gEngine.scene().entities.size()) - 1; refreshScene(); setOutput("Entity duplicated.");
+                    }
+                    break;
+                case ID_FOCUS:
+                    if (gSelected >= 0 && gSelected < static_cast<int>(gEngine.scene().entities.size())) {
+                        const auto& e = gEngine.scene().entities[gSelected];
+                        for (auto& c : gEngine.scene().entities) if (c.kind == EntityKind::Camera) { c.transform.position = {e.transform.position.x, e.transform.position.y + 2.0f, e.transform.position.z - 6.0f}; break; }
+                        setOutput("Focused selection.");
+                    }
+                    break;
+                case ID_APPLY: applyInspector(); break;
+                case ID_HUB_OPEN_SELECTED: {
+                    HWND list = GetDlgItem(gHub, ID_RECENT);
+                    int i = static_cast<int>(SendMessageA(list, LB_GETCURSEL, 0, 0));
+                    if (i != LB_ERR) { wchar_t path[32768]{}; SendMessageW(list, LB_GETTEXT, i, reinterpret_cast<LPARAM>(path)); openProjectPath(path); }
+                    break;
+                }
+                default: break;
+            }
+            return 0;
+        }
+        case WM_KEYDOWN:
+            if (gInEditor && wp == 'S' && (GetKeyState(VK_CONTROL) & 0x8000)) saveProject();
+            return 0;
+        case WM_CLOSE: DestroyWindow(hwnd); return 0;
+        case WM_DESTROY: PostQuitMessage(0); return 0;
+    }
+    return DefWindowProcA(hwnd, msg, wp, lp);
+}
+
+void buildHub() {
+    gHub = child("STATIC", "", WS_CHILD | SS_CENTER, 0, 0, 700, 500, gMain);
+    child("STATIC", "Tiny AI Game Engine", WS_CHILD | WS_VISIBLE | SS_CENTER, 70, 28, 620, 52, gHub);
+    child("STATIC", "A small, beginner-friendly 3D editor", WS_CHILD | WS_VISIBLE | SS_CENTER, 90, 82, 580, 28, gHub);
+    child("BUTTON", "New Project", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 150, 135, 180, 40, gHub, ID_NEW);
+    child("BUTTON", "Open Project", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 370, 135, 180, 40, gHub, ID_OPEN);
+    child("STATIC", "Recent Projects", WS_CHILD | WS_VISIBLE | SS_LEFT, 150, 205, 220, 24, gHub);
+    child("LISTBOX", "", WS_CHILD | WS_VISIBLE | WS_BORDER | LBS_NOTIFY | WS_VSCROLL, 150, 232, 400, 180, gHub, ID_RECENT);
+    child("BUTTON", "Open Selected", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 150, 425, 135, 34, gHub, ID_HUB_OPEN_SELECTED);
+    child("STATIC", "Tip: create a project, then use the toolbar, Scene tree, viewport and Inspector.", WS_CHILD | WS_VISIBLE | SS_CENTER, 90, 472, 580, 34, gHub);
+}
+
+void buildEditorUi() {
+    child("BUTTON", "New", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 8, 8, 58, 28, gMain, ID_NEW);
+    child("BUTTON", "Open", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 70, 8, 58, 28, gMain, ID_OPEN);
+    child("BUTTON", "Save", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 132, 8, 58, 28, gMain, ID_SAVE);
+    child("BUTTON", "Build", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 194, 8, 64, 28, gMain, ID_BUILD);
+    child("BUTTON", "Play", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 262, 8, 58, 28, gMain, ID_PLAY);
+    child("BUTTON", "Stop", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 324, 8, 58, 28, gMain, ID_STOP);
+    child("STATIC", "SCENE", WS_CHILD | WS_VISIBLE | SS_LEFT, 10, 64, 180, 20, gMain);
+    gScene = child("LISTBOX", "", WS_CHILD | WS_VISIBLE | WS_BORDER | LBS_NOTIFY | WS_VSCROLL, 10, 90, 210, 330, gMain, ID_SCENE);
+    child("STATIC", "CREATE", WS_CHILD | WS_VISIBLE | SS_LEFT, 10, 430, 180, 20, gMain);
+    struct B { const char* t; int id; } buttons[] = {
+        {"Cube", ID_ADD_CUBE}, {"Sphere", ID_ADD_SPHERE}, {"Plane", ID_ADD_PLANE},
+        {"Camera", ID_ADD_CAMERA}, {"Dir Light", ID_ADD_DIRECTIONAL}, {"Point", ID_ADD_POINT},
+        {"Spot", ID_ADD_SPOT}, {"Duplicate", ID_DUPLICATE}, {"Delete", ID_DELETE}, {"Focus", ID_FOCUS}
+    };
+    for (int i = 0; i < static_cast<int>(std::size(buttons)); ++i) {
+        int col = i % 2, row = i / 2;
+        child("BUTTON", buttons[i].t, WS_CHILD | BS_PUSHBUTTON, 10 + col * 105, 455 + row * 32, 98, 27, gMain, buttons[i].id);
+    }
+    child("STATIC", "VIEWPORT", WS_CHILD | WS_VISIBLE | SS_LEFT, 242, 50, 120, 20, gMain);
+    child("STATIC", "INSPECTOR", WS_CHILD | WS_VISIBLE | SS_LEFT, 930, 50, 180, 20, gMain);
+    child("STATIC", "Name", WS_CHILD | WS_VISIBLE, 930, 78, 44, 20, gMain);
+    gInspectorName = child("EDIT", "", WS_CHILD | WS_BORDER | ES_AUTOHSCROLL, 980, 76, 245, 24, gMain);
+    const char* names[] = {"X","Y","Z","RX","RY","RZ","SX","SY","SZ"};
+    for (int i = 0; i < 9; ++i) {
+        int col = i % 3, row = i / 3;
+        int x = 932 + col * 96, y = 120 + row * 50;
+        child("STATIC", names[i], WS_CHILD | WS_VISIBLE, x, y, 24, 20, gMain);
+        gTransform[i] = child("EDIT", "0", WS_CHILD | WS_BORDER | ES_AUTOHSCROLL, x + 24, y - 2, 68, 24, gMain);
+    }
+    child("BUTTON", "Apply Changes", WS_CHILD | BS_PUSHBUTTON, 930, 285, 125, 30, gMain, ID_APPLY);
+    child("STATIC", "OUTPUT", WS_CHILD | WS_VISIBLE | SS_LEFT, 242, 0, 100, 20, gMain);
+    gOut = child("EDIT", "Ready. Create or open a project.", WS_CHILD | WS_BORDER | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 242, 700, 650, 80, gMain);
+}
+}
+
+int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int showCmd) {
+    gInstance = instance;
+    WNDCLASSA mainClass{};
+    mainClass.lpfnWndProc = mainProc;
+    mainClass.hInstance = instance;
+    mainClass.lpszClassName = "TinyAIEditorMain";
+    mainClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    mainClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    RegisterClassA(&mainClass);
+
+    WNDCLASSA viewClass{};
+    viewClass.lpfnWndProc = viewportProc;
+    viewClass.hInstance = instance;
+    viewClass.lpszClassName = "TinyAIEditorViewport";
+    viewClass.hCursor = LoadCursor(nullptr, IDC_CROSS);
+    viewClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    RegisterClassA(&viewClass);
+
+    gMain = CreateWindowExA(0, mainClass.lpszClassName, "Tiny AI Game Engine", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+                            80, 40, 1280, 820, nullptr, nullptr, instance, nullptr);
+    if (!gMain) return 1;
+
+    gViewport = CreateWindowExA(0, viewClass.lpszClassName, "", WS_CHILD | WS_BORDER | WS_CLIPSIBLINGS,
+                                238, 72, 700, 520, gMain, nullptr, instance, nullptr);
+    buildEditorUi();
+    buildHub();
+    refreshRecent();
+    showHub();
+    ShowWindow(gMain, showCmd);
+    UpdateWindow(gMain);
+
+    auto last = std::chrono::steady_clock::now();
+    MSG msg{};
+    bool running = true;
+    while (running) {
+        while (PeekMessageA(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_QUIT) { running = false; break; }
+            TranslateMessage(&msg);
+            DispatchMessageA(&msg);
+        }
+        auto now = std::chrono::steady_clock::now();
+        float dt = std::chrono::duration<float>(now - last).count();
+        last = now;
+        dt = std::min(dt, 0.1f);
+        if (gInEditor && gEngine.graphics().ready()) {
+            gEngine.tick(dt);
+            gEngine.render();
+        }
+        Sleep(1);
+    }
     return 0;
 }
