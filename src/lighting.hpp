@@ -1,22 +1,12 @@
 #pragma once
 #include "engine.hpp"
-#include <cmath>
 #include <vector>
 
 namespace Tiny3D {
 
-struct Light {
-    enum class Type { Directional, Point };
-    Type type = Type::Directional;
-    Vec3 position{0, 4, 0};
-    Vec3 direction{-0.35f, -0.8f, -0.45f};
-    Color color{255, 244, 220, 255};
-    float intensity = 1.0f;
-    float range = 10.0f;
-};
-
 inline float saturate(float v) { return std::clamp(v, 0.0f, 1.0f); }
 inline Vec3 multiply(Vec3 a, Vec3 b) { return {a.x*b.x,a.y*b.y,a.z*b.z}; }
+
 inline Color litColor(Color base, Vec3 normal, Vec3 worldPosition,
                        const std::vector<Light>& lights, float ambient = 0.16f) {
     Vec3 n = normalize(normal);
@@ -34,8 +24,7 @@ inline Color litColor(Color base, Vec3 normal, Vec3 worldPosition,
             float q = 1.0f - d / std::max(0.001f, light.range);
             attenuation = q*q;
         }
-        float ndotl = std::max(0.0f, dot(n, l));
-        float contribution = ndotl * light.intensity * attenuation;
+        float contribution = std::max(0.0f, dot(n, l)) * light.intensity * attenuation;
         r += (light.color.r / 255.0f) * contribution;
         g += (light.color.g / 255.0f) * contribution;
         b += (light.color.b / 255.0f) * contribution;
