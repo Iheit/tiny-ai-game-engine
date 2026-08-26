@@ -1,39 +1,54 @@
 #pragma once
-#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <d3d11.h>
+#include <dxgi.h>
+#include <wrl/client.h>
+#include <DirectXMath.h>
+#include <string>
 #include <vector>
-#include <cmath>
-#include <algorithm>
+#include <optional>
 #include <cstdint>
 
-namespace Tiny3D {
-struct Vec3 { float x{}, y{}, z{}; };
-struct Color { uint8_t r{}, g{}, b{}, a{255}; };
-struct Vertex { Vec3 p; Color c; Vec3 normal{0,1,0}; };
-struct Triangle { Vertex a,b,c; };
-struct Light { enum class Type { Directional, Point }; Type type=Type::Directional; Vec3 position{0,4,0}; Vec3 direction{-0.35f,-0.8f,-0.45f}; Color color{255,244,220,255}; float intensity=1.0f; float range=10.0f; };
-inline Vec3 operator+(Vec3 a,Vec3 b){return {a.x+b.x,a.y+b.y,a.z+b.z};}
-inline Vec3 operator-(Vec3 a,Vec3 b){return {a.x-b.x,a.y-b.y,a.z-b.z};}
-inline Vec3 operator*(Vec3 a,float s){return {a.x*s,a.y*s,a.z*s};}
-inline float dot(Vec3 a,Vec3 b){return a.x*b.x+a.y*b.y+a.z*b.z;}
-inline Vec3 cross(Vec3 a,Vec3 b){return {a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};}
-inline float length(Vec3 a){return std::sqrt(dot(a,a));}
-inline Vec3 normalize(Vec3 a){float l=length(a);return l>0.0001f?a*(1.0f/l):Vec3{0,1,0};}
-inline Vec3 rotateY(Vec3 p,float a){float c=std::cos(a),s=std::sin(a);return {p.x*c-p.z*s,p.y,p.x*s+p.z*c};}
-inline Vec3 rotateX(Vec3 p,float a){float c=std::cos(a),s=std::sin(a);return {p.x,p.y*c-p.z*s,p.y*s+p.z*c};}
+namespace tiny {
+using Microsoft::WRL::ComPtr;
+using namespace DirectX;
 
-class Renderer {
+enum class EntityKind { Cube, Sphere, Plane, Camera, DirectionalLight, PointLight, SpotLight };
+struct Transform { XMFLOAT3 position{0,0,0}; XMFLOAT3 rotation{0,0,0}; XMFLOAT3 scale{1,1,1}; };
+struct Material { XMFLOAT4 color{0.65f,0.72f,0.86f,1}; float roughness=.55f; float metallic=0; std::wstring texture; };
+struct Light { XMFLOAT3 color{1,1,1}; float intensity=1; float range=10; float inner=20; float outer=35; bool shadows=false; };
+struct Entity { uint64_t id=0; std::string name; EntityKind kind=EntityKind::Cube; Transform transform{}; Material material{}; Light light{}; bool dynamic=false; bool visible=true; std::string script; };
+struct Scene { std::string name="Main"; uint64_t nextId=1; std::vector<Entity> entities; uint64_t cameraId=0; };
+
+std::string kindName(EntityKind);
+std::string serialize(const Scene&);
+bool deserialize(const std::string&, Scene&, std::string& error);
+
+class Graphics {
 public:
-    Renderer(int w,int h):w_(std::max(1,w)),h_(std::max(1,h)),pixels_(w_*h_),z_(w_*h_){Light studio;studio.type=Light::Type::Directional;studio.direction={-0.45f,-0.9f,-0.35f};studio.color={255,244,220,255};studio.intensity=1.05f;lights_.push_back(studio);}
-    void resize(int w,int h){w_=std::max(1,w);h_=std::max(1,h);pixels_.resize(w_*h_);z_.resize(w_*h_);}
-    void setLights(std::vector<Light> lights){lights_=std::move(lights);}
-    const std::vector<Light>& lights()const{return lights_;}
-    void clear(Color c){uint32_t v=(uint32_t(c.a)<<24)|(uint32_t(c.r)<<16)|(uint32_t(c.g)<<8)|c.b;std::fill(pixels_.begin(),pixels_.end(),v);std::fill(z_.begin(),z_.end(),1e30f);}
-    void drawTriangle(Vertex va,Vertex vb,Vertex vc,float fov=1.0f,float nearZ=0.1f){Vec3 face=normalize(cross(vb.p-va.p,vc.p-va.p));if(length(va.normal)<.001f)va.normal=face;if(length(vb.normal)<.001f)vb.normal=face;if(length(vc.normal)<.001f)vc.normal=face;va.c=light(va.c,va.normal,va.p);vb.c=light(vb.c,vb.normal,vb.p);vc.c=light(vc.c,vc.normal,vc.p);auto project=[&](Vertex v){float z=v.p.z;if(z<=nearZ)z=nearZ;float sx=(v.p.x/z*fov*0.5f+0.5f)*float(w_);float sy=(-v.p.y/z*fov*0.5f+0.5f)*float(h_);return P{sx,sy,z,v.c};};P a=project(va),b=project(vb),c=project(vc);float minx=std::max(0.0f,std::floor(std::min({a.x,b.x,c.x}))),maxx=std::min(float(w_-1),std::ceil(std::max({a.x,b.x,c.x})));float miny=std::max(0.0f,std::floor(std::min({a.y,b.y,c.y}))),maxy=std::min(float(h_-1),std::ceil(std::max({a.y,b.y,c.y})));float area=edge(a,b,c.x,c.y);if(std::abs(area)<.0001f)return;for(int y=int(miny);y<=int(maxy);++y)for(int x=int(minx);x<=int(maxx);++x){float w0=edge(b,c,float(x)+.5f,float(y)+.5f),w1=edge(c,a,float(x)+.5f,float(y)+.5f),w2=edge(a,b,float(x)+.5f,float(y)+.5f);if((w0>=0&&w1>=0&&w2>=0)||(w0<=0&&w1<=0&&w2<=0)){w0/=area;w1/=area;w2/=area;float z=1.0f/(w0/a.z+w1/b.z+w2/c.z);int idx=y*w_+x;if(z<z_[idx]){z_[idx]=z;Color col{uint8_t(std::clamp(w0*a.c.r+w1*b.c.r+w2*c.c.r,0.0f,255.0f)),uint8_t(std::clamp(w0*a.c.g+w1*b.c.g+w2*c.c.g,0.0f,255.0f)),uint8_t(std::clamp(w0*a.c.b+w1*b.c.b+w2*c.c.b,0.0f,255.0f)),255};pixels_[idx]=(uint32_t(col.a)<<24)|(uint32_t(col.r)<<16)|(uint32_t(col.g)<<8)|col.b;}}}}
-    void present(HDC dc){BITMAPINFO bi{};bi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);bi.bmiHeader.biWidth=w_;bi.bmiHeader.biHeight=-h_;bi.bmiHeader.biPlanes=1;bi.bmiHeader.biBitCount=32;bi.bmiHeader.biCompression=BI_RGB;StretchDIBits(dc,0,0,w_,h_,0,0,w_,h_,pixels_.data(),&bi,DIB_RGB_COLORS,SRCCOPY);}
+ bool initialize(HWND hwnd, int width, int height, bool vsync=true);
+ void resize(int width,int height);
+ void beginFrame(const float clear[4]);
+ void drawScene(const Scene& scene, const XMMATRIX& view, const XMMATRIX& proj);
+ void endFrame();
+ void setVsync(bool v){vsync_=v;}
+ bool ready() const{return device_!=nullptr;}
+ ID3D11Device* device() const{return device_.Get();}
 private:
-    struct P{float x,y,z;Color c;};static float edge(const P&a,const P&b,float x,float y){return (x-a.x)*(b.y-a.y)-(y-a.y)*(b.x-a.x);}Color light(Color base,Vec3 normal,Vec3 pos)const{Vec3 n=normalize(normal);float r=.14f,g=.14f,b=.14f;for(const auto&l:lights_){Vec3 dir;float att=1.0f;if(l.type==Light::Type::Directional)dir=normalize(l.direction*-1.0f);else{Vec3 d=l.position-pos;float dist=length(d);if(dist>=l.range)continue;dir=normalize(d);float q=1.0f-dist/std::max(.001f,l.range);att=q*q;}float k=std::max(0.0f,dot(n,dir))*l.intensity*att;r+=(l.color.r/255.0f)*k;g+=(l.color.g/255.0f)*k;b+=(l.color.b/255.0f)*k;}return{uint8_t(std::clamp(base.r*r,0.0f,255.0f)),uint8_t(std::clamp(base.g*g,0.0f,255.0f)),uint8_t(std::clamp(base.b*b,0.0f,255.0f)),base.a};}
-    int w_,h_;std::vector<uint32_t> pixels_;std::vector<float> z_;std::vector<Light> lights_;
+ bool makeShaders(); bool makeBuffers(); void drawEntity(const Entity&,const XMMATRIX&,const XMMATRIX&,const XMMATRIX&);
+ ComPtr<ID3D11Device> device_; ComPtr<ID3D11DeviceContext> context_; ComPtr<IDXGISwapChain> swap_; ComPtr<ID3D11RenderTargetView> rtv_; ComPtr<ID3D11DepthStencilView> dsv_; ComPtr<ID3D11Texture2D> depth_;
+ ComPtr<ID3D11VertexShader> vs_; ComPtr<ID3D11PixelShader> ps_; ComPtr<ID3D11InputLayout> layout_; ComPtr<ID3D11Buffer> vb_; ComPtr<ID3D11Buffer> cb_;
+ HWND hwnd_{}; int width_=1,height_=1; bool vsync_=true;
 };
-class Engine {public:Engine(int width=960,int height=540):width_(width),height_(height),renderer_(width,height){}bool run();virtual void onStart(){}virtual void onUpdate(float){}virtual void onRender(Renderer&){}bool keyDown(int vk)const{return(GetAsyncKeyState(vk)&0x8000)!=0;}int width()const{return width_;}int height()const{return height_;}protected:Renderer& renderer(){return renderer_;}private:static LRESULT CALLBACK wndProc(HWND,UINT,WPARAM,LPARAM);bool createWindow();void render();HWND hwnd_{};int width_,height_;Renderer renderer_;LARGE_INTEGER freq_{},last_{};bool running_{};static Engine* instance_;};
+
+class Engine {
+public:
+ bool initialize(HWND hwnd,int w,int h); void resize(int w,int h); void tick(float dt); void render(); void play(bool v); bool playing()const{return playing_;}
+ Scene& scene(){return scene_;} const Scene& scene()const{return scene_;} Graphics& graphics(){return gfx_;}
+ void setInput(HWND h){input_=h;} bool keyDown(int vk) const{return (GetAsyncKeyState(vk)&0x8000)!=0;}
+private: void simulate(float dt); XMMATRIX cameraView() const; XMMATRIX cameraProjection() const;
+ HWND input_{}; Graphics gfx_; Scene scene_; bool playing_=false; float time_=0; float yaw_=0.0f;
+};
+
+bool writeUtf8File(const std::wstring&,const std::string&); bool readUtf8File(const std::wstring&,std::string&); std::wstring widen(const std::string&); std::string narrow(const std::wstring&);
 }
