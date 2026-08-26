@@ -2,6 +2,7 @@
 #ifdef CreateWindowA
 #undef CreateWindowA
 #endif
+#define CreateWindowA(...) CreateWindowExA(0, __VA_ARGS__)
 #include <commdlg.h>
 #include <filesystem>
 #include <string>
