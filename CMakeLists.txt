@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.20)
+project(Tiny3DEngine LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+add_executable(Tiny3DEngine WIN32 src/engine.cpp src/main.cpp)
+target_compile_definitions(Tiny3DEngine PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
+target_link_libraries(Tiny3DEngine PRIVATE user32 gdi32)
