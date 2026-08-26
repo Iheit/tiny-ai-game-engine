@@ -25,16 +25,18 @@ jobs:
       - name: Package application
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path package\TinyAI-Game-Engine\runtime | Out-Null
           New-Item -ItemType Directory -Force -Path package\TinyAI-Game-Engine\templates | Out-Null
           New-Item -ItemType Directory -Force -Path package\TinyAI-Game-Engine\source | Out-Null
+          New-Item -ItemType Directory -Force -Path package\TinyAI-Game-Engine\docs | Out-Null
+          New-Item -ItemType Directory -Force -Path package\TinyAI-Game-Engine\assets | Out-Null
+          New-Item -ItemType Directory -Force -Path package\TinyAI-Game-Engine\scripts | Out-Null
           Copy-Item build\Release\TinyAIEditor.exe package\TinyAI-Game-Engine\
-          Copy-Item build\Release\TinyAIRuntime.exe package\TinyAI-Game-Engine\runtime\
+          Copy-Item build\Release\TinyAIRuntime.exe package\TinyAI-Game-Engine\
           Copy-Item templates\* package\TinyAI-Game-Engine\templates\ -Recurse
           Copy-Item tinyscript package\TinyAI-Game-Engine\source\tinyscript -Recurse
           Copy-Item src package\TinyAI-Game-Engine\source\src -Recurse
+          Copy-Item docs\* package\TinyAI-Game-Engine\docs\ -Recurse
           Copy-Item README.md package\TinyAI-Game-Engine\
-          Copy-Item docs package\TinyAI-Game-Engine\docs -Recurse
           Compress-Archive -Path package\TinyAI-Game-Engine -DestinationPath TinyAI-Game-Engine-Windows-x64.zip -Force
       - name: Upload Windows build
         uses: actions/upload-artifact@v4
