@@ -3,40 +3,33 @@ project(TinyAIGameEngine VERSION 1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-
-add_library(TinyEngine STATIC
-  src/engine.cpp
-  src/script.cpp
-)
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+add_library(TinyEngine STATIC src/engine.cpp src/script.cpp)
 target_include_directories(TinyEngine PUBLIC src)
 target_compile_definitions(TinyEngine PUBLIC UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(TinyEngine PUBLIC d3d11 dxgi d3dcompiler user32 gdi32 shlwapi)
+target_link_libraries(TinyEngine PUBLIC d3d11 dxgi d3dcompiler user32 gdi32 shell32)
 if(MSVC)
   target_compile_options(TinyEngine PRIVATE /W4 /permissive- /EHsc)
 endif()
-
 add_executable(TinyAIEditor WIN32 src/editor.cpp)
 target_link_libraries(TinyAIEditor PRIVATE TinyEngine)
-target_compile_definitions(TinyAIEditor PRIVATE TINY_EDITOR)
 if(MSVC)
   target_compile_options(TinyAIEditor PRIVATE /W4 /permissive- /EHsc)
 endif()
-
 add_executable(TinyAIRuntime WIN32 src/runtime.cpp)
 target_link_libraries(TinyAIRuntime PRIVATE TinyEngine)
 if(MSVC)
   target_compile_options(TinyAIRuntime PRIVATE /W4 /permissive- /EHsc)
 endif()
-
 add_executable(TinyEngineTests tests/engine_tests.cpp)
 target_link_libraries(TinyEngineTests PRIVATE TinyEngine)
 if(MSVC)
   target_compile_options(TinyEngineTests PRIVATE /W4 /permissive- /EHsc)
 endif()
-
 enable_testing()
 add_test(NAME TinyEngineTests COMMAND TinyEngineTests)
-
 install(TARGETS TinyAIEditor TinyAIRuntime RUNTIME DESTINATION .)
 install(FILES README.md DESTINATION .)
 install(DIRECTORY templates/ DESTINATION templates)
