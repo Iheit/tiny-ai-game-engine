@@ -1,45 +1,56 @@
 # Tiny AI Game Engine
 
-A deliberately small Windows-only C++ 3D game-development starter engine.
+A Windows-first C++ 3D game-development engine prototype designed for simple end-user distribution.
+
+## End-user goal
+
+A release ZIP should run without Visual Studio, CMake, or a separately installed compiler. Launch `TinyAIEditor.exe`, edit a scene, and use **Build Game** to create a standalone runtime project.
 
 ## Current prototype
 
-- Win32 window and game loop
-- Software 3D rasterizer
-- Perspective projection
-- Depth buffer
-- Vertex colors
-- Basic keyboard input
-- Rotating 3D cube demo
-- No third-party runtime dependencies
+- Windows editor executable
+- 3D viewport with animated cube rendering
+- Add Cube, Save, Load, and Build Game controls
+- Human-readable `project.tiny` scene format
+- Standalone `TinyAIRuntime.exe`
+- Starter project template
+- GitHub Actions Windows x64 packaging
+- No third-party runtime DLLs required by the current prototype
 
-## Build locally
+## Automatic builds
 
-Open a **Developer Command Prompt for Visual Studio 2022** in the repository and run:
+Every push to `main`, pull request targeting `main`, and manual workflow dispatch uses a GitHub-hosted Windows 2022 runner. The workflow builds Release binaries and packages `TinyAI-Game-Engine-Windows-x64.zip` as an artifact.
 
-    build.bat
+## Important compiler limitation
 
-Then run `build/Tiny3DEngine.exe`.
+The current prototype does **not** ship a C++ compiler or compile arbitrary user C++ code. The editor's Build Game operation packages the engine runtime plus the scene data. This keeps the end-user package simple and avoids pretending that a full C++ toolchain is a tiny redistributable file.
 
-You can also use CMake:
+The intended future solution is an engine-owned scripting/build layer that can be distributed with the editor, allowing users to create gameplay logic and export a standalone Windows game without installing developer software.
 
-    cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-    cmake --build build --config Release
+## Local development
 
-## Automatic Windows builds
+Contributors need a Windows C++17 compiler and CMake. End users of a release do not.
 
-Every push to `main`, pull request targeting `main`, and manual workflow dispatch runs the Windows build on a GitHub-hosted Windows runner. The workflow compiles the Release executable and uploads `Tiny3DEngine-Windows-x64.zip` as a workflow artifact.
-
-GitHub workflow artifacts can be downloaded from the completed workflow run's **Artifacts** section. They are intended for build outputs such as binaries and ZIP packages.
+```text
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release
+```
 
 ## Controls
 
-- Up Arrow: move camera closer
-- Down Arrow: move camera farther away
-- Close the window: quit
+Editor: use the buttons at the top. The viewport continuously animates the sample scene.
 
-## Architecture
+Runtime: close the window to quit.
 
-`src/engine.hpp` contains the small public engine API and software renderer. `src/engine.cpp` implements the Win32 host/window loop. `src/main.cpp` is the sample game.
+## Roadmap
 
-This is a foundation, not a Unity replacement. Planned engine systems include a proper math/matrix layer, mesh loading, textures, materials, scene entities, transforms, lighting, audio, serialization, an editor, and eventually AI-assisted development tools.
+1. Scene hierarchy and object inspector
+2. Transform editing and camera controls
+3. Mesh and texture assets
+4. Materials and lighting
+5. Collision and basic physics
+6. Audio
+7. Engine-owned gameplay scripting
+8. One-click standalone game export
+9. Packaging and versioned releases
+10. AI-assisted scene and gameplay authoring
