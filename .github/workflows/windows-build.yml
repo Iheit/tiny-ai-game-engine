@@ -1,47 +1,36 @@
-name: Windows Build
-
+name: Windows x64
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
-  build-windows:
+  windows:
     runs-on: windows-2022
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Configure CMake
+      - uses: actions/checkout@v4
+      - name: Configure
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-      - name: Build Release
+      - name: Build
         run: cmake --build build --config Release --parallel
-      - name: Run TinyScript smoke test
-        run: .\build\Release\TinyScriptSmoke.exe
-      - name: Package application
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Smoke editor binary
+        run: if (!(Test-Path build\Release\TinyAIEditor.exe)) { throw 'Editor was not produced' }
+      - name: Package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path package\TinyAI-Game-Engine\templates | Out-Null
-          New-Item -ItemType Directory -Force -Path package\TinyAI-Game-Engine\source | Out-Null
-          New-Item -ItemType Directory -Force -Path package\TinyAI-Game-Engine\docs | Out-Null
-          New-Item -ItemType Directory -Force -Path package\TinyAI-Game-Engine\assets | Out-Null
-          New-Item -ItemType Directory -Force -Path package\TinyAI-Game-Engine\scripts | Out-Null
+          New-Item -ItemType Directory -Force -Path package\TinyAI-Game-Engine | Out-Null
           Copy-Item build\Release\TinyAIEditor.exe package\TinyAI-Game-Engine\
           Copy-Item build\Release\TinyAIRuntime.exe package\TinyAI-Game-Engine\
-          Copy-Item templates\* package\TinyAI-Game-Engine\templates\ -Recurse
-          Copy-Item tinyscript package\TinyAI-Game-Engine\source\tinyscript -Recurse
-          Copy-Item src package\TinyAI-Game-Engine\source\src -Recurse
-          Copy-Item docs\* package\TinyAI-Game-Engine\docs\ -Recurse
           Copy-Item README.md package\TinyAI-Game-Engine\
           Compress-Archive -Path package\TinyAI-Game-Engine -DestinationPath TinyAI-Game-Engine-Windows-x64.zip -Force
-      - name: Upload Windows build
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: TinyAI-Game-Engine-Windows-x64
           path: TinyAI-Game-Engine-Windows-x64.zip
           if-no-files-found: error
-          retention-days: 30
