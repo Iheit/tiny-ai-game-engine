@@ -1,0 +1,19 @@
+# A tiny player controller
+speed = 5
+health = 100
+
+start:
+    say "Player spawned"
+
+update:
+    if key W
+        move 0 0 speed * time
+    if key S
+        move 0 0 -speed * time
+    if key A
+        move -speed * time 0 0
+    if key D
+        move speed * time 0 0
+
+    if health <= 0
+        say "Player defeated"
