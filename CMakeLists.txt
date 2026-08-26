@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(TinyScript STATIC tinyscript/compiler.cpp tinyscript/vm.cpp)
 target_include_directories(TinyScript PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tinyscript)
 
-add_library(TinyAIEngine STATIC src/engine.cpp)
+add_library(TinyAIEngine STATIC src/engine.cpp src/lighting.cpp)
 target_include_directories(TinyAIEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(TinyAIEngine PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(TinyAIEngine PUBLIC user32 gdi32)
@@ -28,6 +28,12 @@ endif()
 add_executable(TinyScriptSmoke tests/tinyscript_smoke.cpp)
 target_link_libraries(TinyScriptSmoke PRIVATE TinyScript)
 target_include_directories(TinyScriptSmoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tinyscript)
+
+add_executable(TinyLightingSmoke src/lighting_test.cpp)
+target_link_libraries(TinyLightingSmoke PRIVATE TinyAIEngine)
+
+enable_testing()
+add_test(NAME TinyLightingSmoke COMMAND TinyLightingSmoke)
 
 install(TARGETS TinyAIEditor TinyAIRuntime RUNTIME DESTINATION .)
 install(DIRECTORY templates/ DESTINATION templates)
