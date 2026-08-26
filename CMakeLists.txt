@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.20)
 project(TinyAIGameEngine LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_WIN32_EXECUTABLE TRUE)
 
 add_library(TinyScript STATIC tinyscript/compiler.cpp tinyscript/vm.cpp)
 target_include_directories(TinyScript PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tinyscript)
