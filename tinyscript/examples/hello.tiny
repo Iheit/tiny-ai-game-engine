@@ -1,0 +1,5 @@
+# The smallest useful TinyScript program
+name = "TinyScript"
+
+start:
+    say "Hello from TinyScript!"
