@@ -1,0 +1,7 @@
+#include "engine.hpp"
+using namespace Tiny3D;
+Engine* Engine::instance_=nullptr;
+LRESULT CALLBACK Engine::wndProc(HWND h,UINT m,WPARAM w,LPARAM l){if(m==WM_DESTROY){PostQuitMessage(0);return 0;}return DefWindowProc(h,m,w,l);}
+bool Engine::createWindow(){HINSTANCE hi=GetModuleHandle(nullptr);WNDCLASS wc{};wc.lpfnWndProc=wndProc;wc.hInstance=hi;wc.lpszClassName=L"Tiny3DEngineWindow";wc.hCursor=LoadCursor(nullptr,IDC_ARROW);if(!RegisterClass(&wc)&&GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)return false;RECT r{0,0,width_,height_};AdjustWindowRect(&r,WS_OVERLAPPEDWINDOW,FALSE);hwnd_=CreateWindowEx(0,wc.lpszClassName,L"Tiny3D Engine",WS_OVERLAPPEDWINDOW|WS_VISIBLE,CW_USEDEFAULT,CW_USEDEFAULT,r.right-r.left,r.bottom-r.top,nullptr,nullptr,hi,nullptr);return hwnd_!=nullptr;}
+bool Engine::run(){instance_=this;if(!createWindow())return false;QueryPerformanceFrequency(&freq_);QueryPerformanceCounter(&last_);running_=true;onStart();MSG msg{};while(running_){while(PeekMessage(&msg,nullptr,0,0,PM_REMOVE)){if(msg.message==WM_QUIT)running_=false;TranslateMessage(&msg);DispatchMessage(&msg);}LARGE_INTEGER now;QueryPerformanceCounter(&now);float dt=float(now.QuadPart-last_.QuadPart)/float(freq_.QuadPart);last_=now;dt=std::min(dt,0.05f);onUpdate(dt);render();}return true;}
+void Engine::render(){renderer_.clear({18,22,30,255});onRender(renderer_);HDC dc=GetDC(hwnd_);renderer_.present(dc);ReleaseDC(hwnd_,dc);}
