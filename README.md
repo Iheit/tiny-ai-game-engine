@@ -1,56 +1,83 @@
 # Tiny AI Game Engine
 
-A Windows-first C++ 3D game-development engine prototype designed for simple end-user distribution.
+Tiny AI Game Engine is a Windows-first C++ 3D game engine focused on a simple editor, a readable gameplay language, and self-contained Windows builds.
 
-## End-user goal
+## What exists now
 
-A release ZIP should run without Visual Studio, CMake, or a separately installed compiler. Launch `TinyAIEditor.exe`, edit a scene, and use **Build Game** to create a standalone runtime project.
+### Editor
 
-## Current prototype
+- Startup Hub with New Project and Open Project
+- Conventional game-editor layout
+- Scene hierarchy
+- 3D viewport with perspective camera
+- RMB orbit, Shift+LMB pan, mouse-wheel zoom
+- Cube, sphere and plane primitives
+- Selection, duplication and deletion
+- Transform inspector for position, rotation and scale
+- Scene save/load
+- Asset folder browser
+- Built-in TinyScript editor
+- TinyScript compile validation
+- Play/Stop mode with basic gravity
+- Build Game package operation
 
-- Windows editor executable
-- 3D viewport with animated cube rendering
-- Add Cube, Save, Load, and Build Game controls
-- Human-readable `project.tiny` scene format
-- Standalone `TinyAIRuntime.exe`
-- Starter project template
-- GitHub Actions Windows x64 packaging
-- No third-party runtime DLLs required by the current prototype
+### Runtime
 
-## Automatic builds
+`TinyAIRuntime.exe` is a standalone Windows runtime. It loads the human-readable scene format, renders the scene with filled 3D primitives, provides first-person-style camera movement, and runs a small physics update for dynamic objects.
 
-Every push to `main`, pull request targeting `main`, and manual workflow dispatch uses a GitHub-hosted Windows 2022 runner. The workflow builds Release binaries and packages `TinyAI-Game-Engine-Windows-x64.zip` as an artifact.
+### TinyScript
 
-## Important compiler limitation
+TinyScript is the intended gameplay language. It is designed to be much easier to learn than C++ and is compiled to bytecode for a small VM.
 
-The current prototype does **not** ship a C++ compiler or compile arbitrary user C++ code. The editor's Build Game operation packages the engine runtime plus the scene data. This keeps the end-user package simple and avoids pretending that a full C++ toolchain is a tiny redistributable file.
+Example:
 
-The intended future solution is an engine-owned scripting/build layer that can be distributed with the editor, allowing users to create gameplay logic and export a standalone Windows game without installing developer software.
+```tiny
+speed = 5
+health = 100
 
-## Local development
+start:
+    say "Player spawned"
 
-Contributors need a Windows C++17 compiler and CMake. End users of a release do not.
+update:
+    if key W
+        move 0 0 speed * time
+```
+
+The language specification is in `tinyscript/SPEC.md`. The current compiler is deliberately small and is being expanded incrementally. Unsupported syntax produces diagnostics instead of silently doing something else.
+
+## Build and distribution
+
+GitHub Actions uses a Windows 2022 runner to compile the editor, runtime and TinyScript smoke test. A successful run creates the `TinyAI-Game-Engine-Windows-x64` artifact containing the Windows editor, runtime, source, templates and documentation.
+
+The release package is intended to require **no Visual Studio, CMake, or separately installed compiler** for the person using the engine.
+
+## Build Game
+
+The editor's Build button creates a `build` directory inside the project and packages a copy of the standalone runtime with the current scene. This is the foundation for a true one-click game exporter. Gameplay-script compilation and asset bundling are still being expanded, so this is not yet equivalent to a mature commercial engine exporter.
+
+## Project layout
+
+```text
+MyGame/
+├── project.tinyproj
+├── assets/
+├── scripts/
+└── build/
+```
+
+## Developer build
+
+Windows developers can build with Visual Studio 2022 and CMake:
 
 ```text
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-## Controls
+The repository also contains a small TinyScript smoke test used by CI.
 
-Editor: use the buttons at the top. The viewport continuously animates the sample scene.
+## Current limitations
 
-Runtime: close the window to quit.
+This is not yet a replacement for Unreal, Unity, Godot, or another mature engine. Rendering is intentionally lightweight and currently uses a Windows software/GDI path. Asset import, textures, modern lighting, robust physics, audio, complete TinyScript semantics, component authoring, and production-grade export are still under development.
 
-## Roadmap
-
-1. Scene hierarchy and object inspector
-2. Transform editing and camera controls
-3. Mesh and texture assets
-4. Materials and lighting
-5. Collision and basic physics
-6. Audio
-7. Engine-owned gameplay scripting
-8. One-click standalone game export
-9. Packaging and versioned releases
-10. AI-assisted scene and gameplay authoring
+Those limitations are documented deliberately. A button labelled `Build` is not considered a feature merely because it exists.
