@@ -19,7 +19,7 @@ if(MSVC)
     target_compile_options(TinyAIEditor PRIVATE /FI"${CMAKE_CURRENT_SOURCE_DIR}/src/editor_fwd.hpp" /W4)
 endif()
 
-add_executable(TinyAIRuntime WIN32 src/runtime.cpp)
+add_executable(TinyAIRuntime WIN32 src/runtime2.cpp)
 target_link_libraries(TinyAIRuntime PRIVATE TinyAIEngine TinyScript)
 target_compile_definitions(TinyAIRuntime PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 if(MSVC)
