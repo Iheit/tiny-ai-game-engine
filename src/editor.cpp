@@ -1,4 +1,7 @@
 #include <windows.h>
+#ifdef CreateWindowA
+#undef CreateWindowA
+#endif
 #include <commdlg.h>
 #include <filesystem>
 #include <string>
